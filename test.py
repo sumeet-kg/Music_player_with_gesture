@@ -8,7 +8,7 @@ import _thread as thread
 import queue as Queue
 import time
 
-from commands import *
+import pyautogui as pg
 
 request_queue = Queue.Queue()
 result_queue = Queue.Queue()
@@ -17,9 +17,8 @@ debug = False
 enable_commands = False
 REALLY_NOT_DEBUG = True
 CHANGE_VOLUME = False
-COOLDOWN = 5
+COOLDOWN = 2
 LAST_TIME = time.time()
-
 
 def submit_to_tkinter(cb, *args, **kwargs):
     request_queue.put((cb, args, kwargs))
@@ -29,7 +28,6 @@ def submit_to_tkinter(cb, *args, **kwargs):
 def debug_toggle():
     global debug
     debug = not debug
-
 
 def toggle_commands():
     global enable_commands
@@ -54,7 +52,7 @@ def main_tk_thread():
     t = tk.Tk()
     t.title("Debug controls")
     t.geometry('%dx%d+%d+%d' % (320, 320, 850, 200))
-    # set font for labels
+    # set font for labelsL
     ft = font.Font(family="Arial", size=18, weight=font.BOLD)
     # create buttons, labels
     tc = tk.Button(text='enable commands', name='ec', command=toggle_commands, width='15')
@@ -78,6 +76,18 @@ def main_tk_thread():
     # main Tk loop
     t.mainloop()
 
+def playAndPause():
+    print("command play and Pause")
+    pg.press("space")
+
+def next():
+    print ("command next") 
+    pg.press("n")
+
+def previous():
+    print ("command previous")
+    pg.press("p")
+
 
 # setters for Tk GUI elements
 def hull_label(a):
@@ -89,7 +99,7 @@ def defects_label(a):
 
 
 def defects_filtered_label(a):
-    t.children["defects_filtered"].configure(text=str("Defects filtered = %s" % a))
+    t.children["defects_filtered"].configure(text=str("Finger Count = %s" % a))
 
 
 def command_label(a):
@@ -105,30 +115,18 @@ def en_dbg_label(a):
 
 
 def check_command(c, exe):
-    if c == 1:
+    if c == 1 or c==2:
         if REALLY_NOT_DEBUG and exe:
-            play()
+            playAndPause()
         return "PLAY"
-    elif c == 2:
-        if REALLY_NOT_DEBUG and exe:
-            pause()
-        return "PAUSE"
     elif c == 3:
         if REALLY_NOT_DEBUG and exe:
-            move_next()
+            next()
         return "NEXT"
-    elif c == 4:
+    elif c == 4 or c==5:
         if REALLY_NOT_DEBUG and exe:
-            move_prev()
+            previous()
         return "PREVIOUS"
-    elif c == 5:
-        if CHANGE_VOLUME and exe:
-            vol_down()
-        return "VOLUME CONTROL DOWN"
-    elif c == 6:
-        if CHANGE_VOLUME and exe:
-            vol_down()
-        return "VOLUME CONTROL UP"
     return None
 
 
@@ -138,30 +136,35 @@ if __name__ == '__main__':
     cap = cv2.VideoCapture(0)
 
     while cap.isOpened():
-        # 1. Constructing Region Of Interest (ROI)
+
+        # 1. Capture video frame and convert it to grayscale
         # read frame from camera
         _, img = cap.read()
+
         # add rectangle for 'target scanning area' 300x300
         cv2.rectangle(img, (350, 350), (50, 50), (0, 255, 0), 0)
+       
         # crop input image to 300x300
         crop_img = img[50:350, 50:350]
+        
         # convert image to gray scale
         gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
         if debug:
             cv2.imshow('Gray scale', gray)
-        # use Gaussian blur
+        
+        # 2. use Gaussian blur
         blur = cv2.GaussianBlur(src=gray, ksize=(35, 35), sigmaX=0)
         if debug:
             cv2.imshow('Blurred', blur)
-        # apply threshold to get black and white (binary) image (ROI)
+        
+        #3. apply threshold 
         _, thresh1 = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         if debug:
             cv2.imshow('Threshold', thresh1)
 
-        # 2. Analyze ROI
-        # find contours
+        #4. Finding convex hull and convexity defects
+        # Analyze ROI
         _, contours, hierarchy = cv2.findContours(thresh1, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        # _, contours, hierarchy = cv2.findContours(thresh1.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
 
         # get max contour area
         cnt = max(contours, key=lambda x: cv2.contourArea(x))
@@ -186,7 +189,7 @@ if __name__ == '__main__':
             start = tuple(cnt[s][0])
             end = tuple(cnt[e][0])
             far = tuple(cnt[f][0])
-            # dist
+            # triangle dist
             a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
             b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
             c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
@@ -194,7 +197,6 @@ if __name__ == '__main__':
             if angle <= 90:
                 count_defects += 1
                 cv2.circle(crop_img, far, 3, [255, 0, 0], -1)
-            # dist = cv2.pointPolygonTest(cnt,far,True)
             cv2.line(crop_img, start, end, [0, 255, 0], 2)
             if debug:
                 cv2.circle(crop_img, far, 5, [0, 0, 255], -1)
@@ -207,15 +209,9 @@ if __name__ == '__main__':
         cv2.imshow('Input', img)
 
         k = cv2.waitKey(50)
-        # got ESC key? if yes - exit!
+        
         if k == 27:
             break
-        elif k == 99:  # for 'c' toggle command execution
-            print ('c input')
-            toggle_commands()
-        elif k == 100:  # for 'd' toggle debug mode
-            print ('d input')
-            debug_toggle()
 
         # do not 'change' command to quickly and wait after last one
         if time.time() - LAST_TIME > COOLDOWN and enable_commands:
