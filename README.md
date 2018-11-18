@@ -10,4 +10,4 @@ Play Songs with Gesture of your hand
  pip install numpy
  pip install thread-queue
  ```
-4. python text.py
+4. python gplay.py

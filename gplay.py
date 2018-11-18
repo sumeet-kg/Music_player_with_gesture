@@ -1,31 +1,33 @@
 import math
-#import tkFont
 import numpy as np
-import cv2  # required 3+
+import cv2
 import tkinter as tk 
 from tkinter import font
 import _thread as thread
 import queue as Queue
 import time
-
 import pyautogui as pg
 
+# Global variables
+
+# threading queues
 request_queue = Queue.Queue()
 result_queue = Queue.Queue()
+
+# variables
 t = None
 debug = False
 enable_commands = False
 REALLY_NOT_DEBUG = True
 CHANGE_VOLUME = False
-COOLDOWN = 2
+COOLDOWN = 2 # 2sec cooldown
 LAST_TIME = time.time()
 
-def submit_to_tkinter(cb, *args, **kwargs):
+def update_UI_values(cb, *args, **kwargs):
     request_queue.put((cb, args, kwargs))
     return result_queue.get()
 
-
-def debug_toggle():
+def toggle_debug():
     global debug
     debug = not debug
 
@@ -42,28 +44,30 @@ def main_tk_thread():
             cb, args, kwargs = request_queue.get_nowait()
         except Queue.Empty:
             pass
-        else:  # if no exception was raised
+        else:  
             retval = cb(*args, **kwargs)
             result_queue.put(retval)
-        # reschedule after some time
+        
         t.after(10, timertick)
 
-    # create main Tk window
+    # create GUI
     t = tk.Tk()
     t.title("Debug controls")
     t.geometry('%dx%d+%d+%d' % (320, 320, 850, 200))
+    
     # set font for labelsL
     ft = font.Font(family="Arial", size=18, weight=font.BOLD)
+    
     # create buttons, labels
     tc = tk.Button(text='enable commands', name='ec', command=toggle_commands, width='15')
     tc.place(x=20, y=210)
-    b = tk.Button(text='debug mode', name='dbg', command=debug_toggle, width='15')
+    b = tk.Button(text='debug mode', name='dbg', command=toggle_debug, width='15')
     b.place(x=20, y=260)
     hull = tk.Label(t, name="hull", text="None", font=ft)
     hull.place(x=20, y=10)
     defects = tk.Label(t, name="defects", text="None", font=ft)
     defects.place(x=20, y=60)
-    defects_filtered = tk.Label(t, name="defects_filtered", text="None", font=ft)
+    defects_filtered = tk.Label(t, name="finger_count", text="None", font=ft)
     defects_filtered.place(x=20, y=110)
     command = tk.Label(t, name="command", text="None", font=ft)
     command.place(x=20, y=160)
@@ -71,9 +75,11 @@ def main_tk_thread():
     en_command.place(x=160, y=215)
     en_dbg = tk.Label(t, name="en_dbg", text="None")
     en_dbg.place(x=160, y=265)
-    # start timer a.k.a. scheduler
+    
+    # start scheduler
     timertick()
-    # main Tk loop
+    
+    # main GUI loop
     t.mainloop()
 
 def playAndPause():
@@ -89,18 +95,16 @@ def previous():
     pg.press("p")
 
 
-# setters for Tk GUI elements
+# updating GUI views helper function
 def hull_label(a):
     t.children["hull"].configure(text=str("All hulls = %s " % a))
-
 
 def defects_label(a):
     t.children["defects"].configure(text=str("All defects = %s" % a))
 
 
 def defects_filtered_label(a):
-    t.children["defects_filtered"].configure(text=str("Finger Count = %s" % a))
-
+    t.children["finger_count"].configure(text=str("Finger Count = %s" % a))
 
 def command_label(a):
     t.children["command"].configure(text=str("Command = %s" % a))
@@ -138,31 +142,30 @@ if __name__ == '__main__':
     while cap.isOpened():
 
         # 1. Capture video frame and convert it to grayscale
-        # read frame from camera
         _, img = cap.read()
 
         # add rectangle for 'target scanning area' 300x300
         cv2.rectangle(img, (350, 350), (50, 50), (0, 255, 0), 0)
-       
+
         # crop input image to 300x300
         crop_img = img[50:350, 50:350]
-        
+
         # convert image to gray scale
         gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
         if debug:
             cv2.imshow('Gray scale', gray)
         
-        # 2. use Gaussian blur
+        # 2.Appling Blur
         blur = cv2.GaussianBlur(src=gray, ksize=(35, 35), sigmaX=0)
         if debug:
             cv2.imshow('Blurred', blur)
         
-        #3. apply threshold 
+        # 3. apply threshold
         _, thresh1 = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         if debug:
             cv2.imshow('Threshold', thresh1)
 
-        #4. Finding convex hull and convexity defects
+        # 4. Finding convex hull and convexity defects
         # Analyze ROI
         _, contours, hierarchy = cv2.findContours(thresh1, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -189,7 +192,7 @@ if __name__ == '__main__':
             start = tuple(cnt[s][0])
             end = tuple(cnt[e][0])
             far = tuple(cnt[f][0])
-            # triangle dist
+            # triangle dist for finding angle
             a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
             b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
             c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
@@ -213,7 +216,7 @@ if __name__ == '__main__':
         if k == 27:
             break
 
-        # do not 'change' command to quickly and wait after last one
+        # cooldown 
         if time.time() - LAST_TIME > COOLDOWN and enable_commands:
             exe = True
             LAST_TIME = time.time()
@@ -227,11 +230,12 @@ if __name__ == '__main__':
         to_next = COOLDOWN - delta
         if to_next < 0:
             to_next = 0
-        # submit some data to GUI
-        submit_to_tkinter(hull_label, str(hull.shape[0]))
-        submit_to_tkinter(defects_label, str(defects.shape[0]))
-        submit_to_tkinter(defects_filtered_label, str(count_defects))
-        submit_to_tkinter(en_command_label, str("%s, cooldown %.2fs." % (enable_commands, to_next)))
-        submit_to_tkinter(en_dbg_label, debug)
+        # update UI values with computed data
+        update_UI_values(hull_label, str(hull.shape[0]))
+        update_UI_values(defects_label, str(defects.shape[0]))
+        update_UI_values(defects_filtered_label, str(count_defects))
+        update_UI_values(en_command_label, str("%s, cooldown %.2fs." % (enable_commands, to_next)))
+        update_UI_values(en_dbg_label, debug)
+        
         if com:
-            submit_to_tkinter(command_label, com)
+            update_UI_values(command_label, com)
